@@ -7,8 +7,8 @@ from descartes import PolygonPatch
 import chardet
 from shapely.geometry import MultiPolygon, Polygon
 
-file1_path = 'C:\\Python\\SosiPythonLedning\\FKB.SOS'
-file2_path = 'C:\\Python\\SosiPythonLedning\\Everk.SOS'
+file1_path = 'C:\\Python\\SosiPythonLedning\\Liten_FKB.SOS'
+file2_path = 'C:\\Python\\SosiPythonLedning\\Liten_Everk.SOS'
 
 def detect_encoding(file_path):
     with open(file_path, 'rb') as file:
@@ -52,7 +52,7 @@ def parse_sosi_geometry_2d_and_extent(file_path):
                 current_geom, current_attrs = [], [stripped_line]
                 geom_type = stripped_line.split()[0]
                 reading_coordinates = False
-            elif stripped_line == '..NØHH':
+            elif stripped_line == '..NØH':
                 reading_coordinates = True
             elif reading_coordinates and stripped_line != '.SLUTT':
                 try:
@@ -100,24 +100,29 @@ def visualize_geometries_with_buffers(geometries, buffer_distance):
     ax.set_aspect('equal')
     plt.show()
 
-def find_unique_geometries_everk(file1_geometries_with_attrs, file2_geometries_with_attrs, buffer_distance):
-    # Buffer all geometries in file1 (FKB.SOS) for comparison
-    buffered_geometries1 = [geom.buffer(buffer_distance) for geom, _ in file1_geometries_with_attrs]
-    # Combine the buffered geometries in file1 to simplify overlap checking
-    combined_buffered_geometries1 = unary_union(buffered_geometries1)
+def find_non_overlapping_geometries(file1_geometries_with_attrs, file2_geometries, buffer_distance):
+    non_overlapping_geometries_with_attrs = []
 
-    unique_geometries_with_attrs_everk = []
+    # Buffer all geometries in file2 for more efficient comparison
+    buffered_geometries2 = [geom.buffer(buffer_distance) for geom, _ in file2_geometries]
+    # Combine the buffered geometries in file2 to simplify overlap checking
+    combined_geometries2 = unary_union(buffered_geometries2)
 
-    # Check each geometry in file2 (Everk.SOS) if it falls outside the combined buffer of file1
-    for geom2, attrs2 in file2_geometries_with_attrs:
-        if not geom2.intersects(combined_buffered_geometries1):
-            unique_geometries_with_attrs_everk.append((geom2, attrs2))
+    for geom1, attrs1 in file1_geometries_with_attrs:
+        # Buffer the current geometry from file1
+        buffered_geom1 = geom1.buffer(buffer_distance)
+        # Check if buffered_geom1 overlaps with any geometry in combined_geometries2
+        if not buffered_geom1.intersects(combined_geometries2):
+            non_overlapping_geometries_with_attrs.append((geom1, attrs1))
 
-    return unique_geometries_with_attrs_everk
+    return non_overlapping_geometries_with_attrs
 
 # Assuming parse_sosi_geometry_2d_and_extent(file_path) returns a list of geometries for each file
-file1_geometries, file1_extent = parse_sosi_geometry_2d_and_extent(file1_path)  # FKB.SOS
-file2_geometries, file2_extent = parse_sosi_geometry_2d_and_extent(file2_path)  # Everk.SOS
+file1_geometries = parse_sosi_geometry_2d_and_extent(file1_path)
+file2_geometries = parse_sosi_geometry_2d_and_extent(file2_path)
+
+file1_geometries, file1_extent = parse_sosi_geometry_2d_and_extent(file1_path)
+file2_geometries, file2_extent = parse_sosi_geometry_2d_and_extent(file2_path)
 
 combined_extent = {
     'min_x': min(file1_extent['min_x'], file2_extent['min_x']),
@@ -129,10 +134,10 @@ def write_geometries_to_sosi(geometries_with_attrs, extent, file_path):
     with open(file_path, 'w', encoding='utf-8') as file:
         # Header
         file.write(".HODE\n..TEGNSETT UTF-8\n..OMRÅDE\n")
-        file.write(f"...MIN-NØH  {int(extent['min_x'])}  {int(extent['min_y'])}\n")
-        file.write(f"...MAX-NØH  {int(extent['max_x'])}  {int(extent['max_y'])}\n")
+        file.write(f"...MIN-NØ  {int(extent['min_x'])}  {int(extent['min_y'])}\n")
+        file.write(f"...MAX-NØ  {int(extent['max_x'])}  {int(extent['max_y'])}\n")
         file.write("..SOSI-VERSJON 5.0\n..SOSI-NIVÅ 3\n..TRANSPAR\n")
-        file.write("...KOORDSYS 22\n...ORIGO-NØH 0  0\n...ENHET 0.000001\n...VERT-DATUM NN2000\n")
+        file.write("...KOORDSYS 22\n...ORIGO-NØ 0  0\n...ENHET 0.000001\n...VERT-DATUM NN2000\n")
         file.write('..NGIS-ARKIV "Ledning_Norge"\n..OBJEKTKATALOG FKBLedning 5.0\n..PROSESS_HISTORIE "202402012 - Trans (Skt2lan1.dll 1.46): fra 23 til 22"\n')
 
         # Non-overlapping geometries
@@ -145,35 +150,31 @@ def write_geometries_to_sosi(geometries_with_attrs, extent, file_path):
         
         file.write('.SLUTT\n')
 
+# Specify the buffer distance for comparison
 buffer_distance = 10  # Adjust as needed
+# Find non-overlapping geometries based on the buffer distance
+non_overlapping = find_non_overlapping_geometries(file1_geometries, file2_geometries, buffer_distance)
+print(f'Found {len(non_overlapping)} non-overlapping geometries.')
 
-unique_everk_geometries = find_unique_geometries_everk(file1_geometries, file2_geometries, buffer_distance)
+# Calculate the combined geometry of all non-overlapping geometries
+non_overlapping_geometries = [geom for geom, attrs in non_overlapping]
+combined_non_overlapping_geometry = unary_union(non_overlapping_geometries)
 
-# Calculate the bounding box for the unique geometries
-unique_everk_geometries_list = [geom for geom, attrs in unique_everk_geometries]
-combined_unique_geometry = unary_union(unique_everk_geometries_list)
-minx, miny, maxx, maxy = combined_unique_geometry.bounds
-if not combined_unique_geometry.is_empty:
-    minx, miny, maxx, maxy = combined_unique_geometry.bounds
-    new_combined_extent = {
-        'min_x': minx, 
-        'min_y': miny, 
-        'max_x': maxx, 
-        'max_y': maxy
-    }
-else:
-    print("No unique Everk geometries found outside the FKB buffer.")
-    new_combined_extent = {
-        'min_x': 0, 
-        'min_y': 0, 
-        'max_x': 0, 
-        'max_y': 0
-    }
+# Calculate the bounding box of the combined geometry
+minx, miny, maxx, maxy = combined_non_overlapping_geometry.bounds
 
-output_sosi_path = 'C:\\Python\\SosiPythonLedning\\unique_everk_geometries.sos'
+# Update combined_extent with the new bounding box values
+new_combined_extent = {
+    'min_x': minx, 
+    'min_y': miny, 
+    'max_x': maxx, 
+    'max_y': maxy
+}
 
-if not combined_unique_geometry.is_empty:
-    write_geometries_to_sosi(unique_everk_geometries, new_combined_extent, output_sosi_path)
-    print(f'Unique Everk.SOS geometries written to "{output_sosi_path}".')
-else:
-    print("Skipped writing the .SOS file due to no unique geometries found.")
+# Define the path for the new .SOSI file that will contain the non-overlapping geometries
+output_sosi_path = 'C:\\Python\\SosiPythonLedning\\non-overlapping_geometries.sos'
+
+# Write the non-overlapping geometries to the new .SOSI file using the new bounding box
+write_geometries_to_sosi(non_overlapping, new_combined_extent, output_sosi_path)
+
+print(f'Non-overlapping geometries written to "{output_sosi_path}".')
